@@ -17,11 +17,16 @@ DB_FILTER_LIST = [' ', '/', '-', '.']
 # Listing Title
 TITLE_FILTER_LIST = ['"']
 # Listing Shipping
-SHIPPING_FILTER_LIST = ['Free', 'shipping', ' ', '+', '$', 'Shippingnotspecified', 'estimate']
+SHIPPING_FILTER_LIST = ['Free 4 day shipping', 'Free 3 day shipping', 'Free', 'shipping',
+                        ' ', '+', '$', 'Shippingnotspecified', 'Shipping not specified',
+                        'estimate', 'day', 'Returns', 'returns', 'and', 'Accepted',
+                        'Ships from United States']
 # Listing Bids
-BID_FILTER_LIST = ['·', ' ', 'bids']
+BID_FILTER_LIST = ['·', ' ', 'bids', 'bid']
 # Listing Time Left
 TIME_LEFT_FILTER_LIST = [' ', 'left']
+# Listing Price
+PRICE_FILTER_LIST = ['$', 'estimate', ',']
 
 # Declare browser headers for requests.
 headers = {
@@ -79,17 +84,20 @@ def ebay_page_parser(url, db, retry_attempts):
             shipping = item.select_one('.s-item__logisticsCost').text
             for filter_item in SHIPPING_FILTER_LIST:
                 shipping = shipping.replace(filter_item, '')
-            if shipping == '':
-                shipping = 0
-            shipping = float(round(shipping, 2))
-        except:
-            shipping = -1
+        except AttributeError:
+            shipping = 0
+        if shipping == '':
+            shipping = 0
+        shipping = round(float(shipping), 2)
 
         # Get the listing bid count.
         try:
-            bid_count = item.select_one('.s-item__bidCount').text
-            for filter_item in BID_FILTER_LIST:
-                bid_count = bid_count.replace(filter_item, '')
+            try:
+                bid_count = item.select_one('.s-item__bidCount').text
+                for filter_item in BID_FILTER_LIST:
+                    bid_count = bid_count.replace(filter_item, '')
+            except AttributeError:
+                bid_count = 0
             bid_count = int(bid_count)
         except:
             bid_count = -1
@@ -98,8 +106,7 @@ def ebay_page_parser(url, db, retry_attempts):
         try:
             bid_time_left = item.select_one('.s-item__time-left').text
             for filter_item in TIME_LEFT_FILTER_LIST:
-                bid_time_left = bid_time_left.replace(filter_list, '')
-
+                bid_time_left = bid_time_left.replace(filter_item, '')
             # Since the data point is in day hour minute form, turn it into number of hours.
             time_left = 0.00
             times = findall(r"\d+[mdh]", bid_time_left)
@@ -110,21 +117,23 @@ def ebay_page_parser(url, db, retry_attempts):
                     time_left += int(bid_time[:-1])
                 if bid_time[-1] == 'm':
                     time_left += int(bid_time[:-1])/60
-            bid_time_left = float(round(time_left, 2))
+            bid_time_left = round(time_left, 2)
         except:
             bid_time_left = -1
 
         # Get the listing price.
         try:
-            price = item.select_one('.s-item__price').text.replace('$', '').replace('estimate', '')
+            price = item.select_one('.s-item__price').text
+            for filter_item in PRICE_FILTER_LIST:
+                price = price.replace(filter_item, '')
 
             # Sometimes there will be multiple prices listed, therefore only get the highest price.
-            prices = findall(r"[,?\d+]+\.\d+", price)
+            prices = findall(r"\d+\.\d+", price)
             highest_price = 0.00
             for price in prices:
                 if float(price) > highest_price:
                     highest_price = float(price)
-            price = float(round(highest_price, 2))
+            price = round(float(highest_price), 2)
         except:
             price = -1
 
@@ -132,7 +141,7 @@ def ebay_page_parser(url, db, retry_attempts):
         if title == "Shop on eBay":
             pass
         # Add the listing to the correct table in the database.
-        elif (bid_count == -1) and (bid_time_left == -1):
+        elif (bid_count == 0) and (bid_time_left == -1):
             with db:
                 db.cursor.execute('INSERT INTO buy_now VALUES ("{}", "{}", {}, "{}", {})'.format(title, link, price, condition, shipping))
         else:
